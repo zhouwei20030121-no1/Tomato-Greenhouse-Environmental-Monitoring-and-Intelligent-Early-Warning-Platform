@@ -1,40 +1,57 @@
-flowchart TB
-    START([开始]) --> LOGIN[/提交用户名与密码/]
-    LOGIN --> AUTH{身份验证是否通过？}
-    AUTH -- 否 --> REJECT[/提示重新登录/]
-    REJECT --> LOGIN
-    AUTH -- 是 --> ROLE{账号角色？}
-    ROLE -- 系统维护员 --> OPS[数据导入、模型训练与历史回放控制]
-    OPS --> SOURCE[/读取已核验的真实LoRaWAN记录/]
-    SOURCE --> PIPE[排序去重、质量标记与网关接入]
-    PIPE --> QUALITY{观测和窗口是否有效？}
-    QUALITY -- 否 --> MAINT[记录数据维护提示或预测暂停原因]
-    QUALITY -- 是 --> ANALYZE[温湿度与空气VPD计算、GRU短期预测]
-    ANALYZE --> RULE[持续偏离与预测偏离规则判定]
-    RULE --> HIT{是否产生预警？}
-    HIT -- 是 --> EVENT[合并事件并保存触发证据]
-    HIT -- 否 --> STORE[更新监测结果]
-    MAINT --> STORE
-    EVENT --> STORE
-    ROLE -- 温室管理员 --> HOME[/查看温室全景与当前环境/]
-    STORE --> HOME
-    HOME --> NODE[/点击节点弹出详情或进入独立历史分析页/]
-    NODE --> ASK{是否需要解释或建议？}
-    ASK -- 是 --> RETRIEVE[悬浮助手或助手页检索证据与知识]
-    RETRIEVE --> RAG[BM25与TF-IDF召回、RRF融合、MMR去重]
-    RAG --> ANSWER[/DeepSeek生成回答并校验引用；失败时标明降级/]
-    ASK -- 否 --> REVIEW[查看预警并核对触发依据]
-    ANSWER --> REVIEW
-    REVIEW --> CONFIRM{管理员是否确认处理？}
-    CONFIRM -- 否 --> KEEP[保留待处理事件]
-    CONFIRM -- 是 --> CHECK[后端校验角色、事件状态与唯一指令ID]
-    CHECK --> ACTION[虚拟执行器模拟通风、开窗或遮阳]
-    ACTION --> ACK[/保存并展示模拟回执/]
-    ACK --> FOLLOW[复看后续真实历史观测并写记录]
-    FOLLOW --> CLOSE{是否关闭事件？}
-    CLOSE -- 是 --> CLOSED[关闭事件并保留日志]
-    CLOSE -- 否 --> KEEP
-    KEEP --> CONTINUE{是否继续查看？}
-    CLOSED --> CONTINUE
-    CONTINUE -- 是 --> HOME
-    CONTINUE -- 否 --> END([结束或退出登录])
+flowchart LR
+ subgraph ACCESS[一 身份与角色]
+ direction TB
+ S([开始]) --> LOGIN[/输入用户名与密码/]
+ LOGIN --> AUTH{身份验证通过？}
+ AUTH -- 否 --> REJECT[/提示重新登录/]
+ REJECT --> LOGIN
+ AUTH -- 是 --> ROLE{账号角色？}
+ ROLE -- 系统维护员 --> OPS[导入数据、训练模型、控制回放]
+ OPS --> A1((A))
+ ROLE -- 温室管理员 --> B1((B))
+ end
+ subgraph ANALYSIS[二 数据与分析]
+ direction TB
+ A2((A)) --> SOURCE[/按节点与源时间读取真实记录/]
+ SOURCE --> PIPE[排序去重、质量标记与逻辑网关接入]
+ PIPE --> VALID{观测有效且新鲜？}
+ VALID -- 否 --> QUALITY[保存数据维护提示]
+ VALID -- 是 --> VPD[计算温湿度与空气VPD]
+ VPD --> READY{模型与输入窗口就绪？}
+ READY -- 是 --> GRU[GRU预测未来30分钟]
+ READY -- 否 --> PAUSE[保留观测并标明预测暂停]
+ GRU --> RULE[持续偏离与预测偏离规则判定]
+ PAUSE --> RULE
+ RULE --> SAVE[保存监测结果、合并预警与触发证据]
+ QUALITY --> SAVE
+ SAVE --> B2((B))
+ end
+ subgraph INTERACTION[三 查看与证据解释]
+ direction TB
+ B3((B)) --> HOME[/查看温室全景与当前环境/]
+ HOME --> NODE[/点击节点弹窗或查看独立历史页/]
+ NODE --> ASK{是否需要解释？}
+ ASK -- 是 --> RETRIEVE[悬浮助手或助手页读取节点与事件证据]
+ RETRIEVE --> RAG[BM25与TF-IDF召回、RRF融合、MMR去重]
+ RAG --> ANSWER[/DeepSeek生成并校验引用；失败时标明降级/]
+ ASK -- 否 --> REVIEW[/查看预警并核对依据/]
+ ANSWER --> REVIEW
+ REVIEW --> C1((C))
+ end
+ subgraph EXECUTION[四 人工处理与复看]
+ direction TB
+ C2((C)) --> CONFIRM{管理员确认处理？}
+ CONFIRM -- 是 --> CHECK[后端检查角色、状态与唯一指令ID]
+ CHECK --> ACTION[虚拟执行器模拟通风、开窗或遮阳]
+ ACTION --> ACK[/展示模拟回执/]
+ ACK --> FOLLOW[复看后续真实观测并写处理记录]
+ FOLLOW --> CLOSE{是否关闭事件？}
+ CLOSE -- 是 --> CLOSED[关闭事件并保留日志]
+ CLOSE -- 否 --> KEEP[保留事件继续关注]
+ CONFIRM -- 否 --> KEEP
+ CLOSED --> CONTINUE{是否继续查看？}
+ KEEP --> CONTINUE
+ CONTINUE -- 是 --> B4((B))
+ CONTINUE -- 否 --> E([结束或退出登录])
+ end
+ ACCESS ~~~ ANALYSIS ~~~ INTERACTION ~~~ EXECUTION
