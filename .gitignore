@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.venv/
+node_modules/
+frontend/dist/
+data/
+models/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.log
+*.sqlite*
+*.db
+*.pt
+*.pth
+artifacts/
