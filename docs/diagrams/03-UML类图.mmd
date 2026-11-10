@@ -1,0 +1,109 @@
+classDiagram
+    direction TB
+    class Greenhouse {
+        +id: String
+        +name: String
+        +location: String
+    }
+    class Node {
+        +id: String
+        +greenhouseId: String
+        +rowIndex: int
+        +colIndex: int
+    }
+    class Reading {
+        +id: int
+        +sourceId: String
+        +eventTime: DateTime
+        +temperature: float
+        +humidity: float
+        +rssi: float
+        +snr: float
+        +quality: String
+    }
+    class ModelVersion {
+        +id: String
+        +trainEnd: DateTime
+        +valEnd: DateTime
+        +featureSpec: String
+        +weightsPath: String
+    }
+    class Prediction {
+        +nodeId: String
+        +modelId: String
+        +issuedAt: DateTime
+        +targetTime: DateTime
+        +temperature: float
+        +humidity: float
+    }
+    class AlertEvent {
+        +id: String
+        +sessionId: String
+        +type: String
+        +status: String
+        +evidence: JSON
+    }
+    class Command {
+        +id: String
+        +eventId: String
+        +action: String
+        +status: String
+        +ackTime: DateTime
+    }
+    class KnowledgeChunk {
+        +id: String
+        +documentId: String
+        +text: String
+        +sourceUrl: String
+    }
+    class ForecastService {
+        -model: ClimateGRU
+        +predict(node, time) Prediction[]
+        +reload() void
+    }
+    class HybridRetriever {
+        -lexicalIndex: BM25
+        -vectorIndex: TFIDF
+        +retrieve(query) Evidence[]
+        -fuseRRF(rankings) Evidence[]
+        -selectMMR(candidates) Evidence[]
+    }
+    class EvidenceAssistant {
+        -retriever: HybridRetriever
+        -provider: DeepSeekClient
+        +ask(query, context) Answer
+        -validateCitations(answer) bool
+    }
+    class EventService {
+        +confirm(eventId, note) void
+        +execute(eventId, commandId) Command
+        +close(eventId, note) void
+    }
+    class User {
+        +id: String
+        +username: String
+        +role: String
+        -passwordHash: String
+        -passwordSalt: String
+    }
+    class AuthSession {
+        -tokenHash: String
+        +userId: String
+        +expiresAt: DateTime
+    }
+    User "1" -- "0..*" AuthSession : 登录会话
+    EventService ..> User : 检查业务权限
+    Greenhouse "1" o-- "27" Node : 包含
+    Node "1" -- "0..*" Reading : 产生
+    Node "1" -- "0..*" Prediction : 对应
+    ModelVersion "1" -- "0..*" Prediction : 生成
+    Node "1" -- "0..*" AlertEvent : 关联
+    AlertEvent "1" -- "0..*" Command : 处理记录
+    ForecastService ..> Reading : 读取窗口
+    ForecastService ..> ModelVersion : 加载
+    ForecastService ..> Prediction : 输出
+    HybridRetriever ..> KnowledgeChunk : 检索
+    EvidenceAssistant --> HybridRetriever : 使用
+    EvidenceAssistant ..> AlertEvent : 解释
+    EventService ..> AlertEvent : 状态流转
+    EventService ..> Command : 幂等执行
