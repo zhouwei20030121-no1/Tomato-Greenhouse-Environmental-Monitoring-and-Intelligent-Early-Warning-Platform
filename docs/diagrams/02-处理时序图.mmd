@@ -1,86 +1,92 @@
 sequenceDiagram
     autonumber
-    actor U as 管理员
     actor O as 系统维护员
-    participant UI as 前端页面
-    participant API as API与权限
-    participant R as 回放与网关服务
-    participant A as 预测与预警服务
-    participant DB as 数据库
-    participant K as RAG助手
+    actor G as 温室管理员
+    participant UI as 前端角色工作台
+    participant API as FastAPI与权限校验
+    participant P as 回放与分析服务
+    participant DB as SQLite
+    participant R as RAG助手
     participant L as DeepSeek
-    participant E as 事件与虚拟执行器
-    U->>UI: 登录温室管理员工作台
-    UI->>API: 用户名与密码
+    participant E as 事件与虚拟执行服务
+    O->>UI: 登录维护员账号
+    activate UI
+    UI->>API: 提交用户名与密码
     activate API
-    API->>DB: 校验密码摘要和角色
-    DB-->>API: 返回账号与权限
+    API->>DB: 校验账号、密码摘要和角色
+    DB-->>API: 返回维护员身份
     API-->>UI: 设置HttpOnly会话Cookie
     deactivate API
-    Note over U,O: 两种角色使用各自独立的登录会话
-    O->>UI: 在维护员会话中选择历史时间，开始回放
-    activate UI
-    UI->>R: 更新回放参数
+    UI-->>O: 显示数据、模型与回放功能
+    deactivate UI
+    O->>UI: 导入数据、训练模型或开始回放
+    UI->>API: 提交维护操作及会话Cookie
+    activate API
+    API->>API: 校验系统维护员权限
+    API->>P: 启动导入、训练或回放任务
+    deactivate API
+    activate P
+    P->>DB: 读取真实记录、保存质量和任务状态
+    DB-->>P: 返回当前格点与历史窗口
+    alt 模型和输入窗口就绪
+        P->>P: GRU预测并判定持续或预测偏离
+    else 模型未就绪或数据缺口过大
+        P->>P: 保留观测，标记预测暂停原因
+    end
+    P->>DB: 保存预测、预警证据及时间轴
+    deactivate P
+    Note over O,G: 两种角色使用独立会话
+    G->>UI: 登录管理员账号并查看首页
+    UI->>API: 登录后查询温室总览
+    activate API
+    API->>DB: 查询真实节点与监测结果
+    DB-->>API: 返回节点、时间与事件摘要
+    API-->>UI: 返回管理员可读数据
+    deactivate API
+    UI-->>G: 展示大幅温室全景
+    G->>UI: 点击节点或切换节点历史页
+    UI->>API: 查询节点详情与历史曲线
+    API->>DB: 查询所选节点和历史范围
+    DB-->>API: 返回观测与质量标记
+    API-->>UI: 返回结果
+    UI-->>G: 弹出详情或展示独立历史分析
+    G->>UI: 从悬浮入口或助手页提问
+    UI->>API: 问题与节点、源时间、事件上下文
+    activate API
+    API->>R: 调用证据助手
     activate R
-    R->>DB: 读取不晚于事件时钟的真实观测
-    activate DB
-    DB-->>R: 返回观测、源时间和质量标记
-    deactivate DB
-    R->>A: 处理当前5分钟格点与输入窗口
-    activate A
-    alt 窗口有效且模型就绪
-        A->>A: 执行GRU多步预测
-    else 模型未就绪或存在长缺口
-        A->>A: 暂停预测，记录原因
-    end
-    A->>DB: 写预测结果和满足规则的预警证据
-    activate DB
-    DB-->>A: 返回事件ID
-    deactivate DB
-    A-->>R: 本格点处理完成
-    deactivate A
-    R-->>UI: 返回时间轴状态
-    deactivate R
-    UI->>DB: 经只读API查询看板、曲线和预警
-    activate DB
-    DB-->>UI: 返回观测与事件详情
-    deactivate DB
-    UI-->>U: 显示节点环境与待处理事件
-    deactivate UI
-    U->>UI: 提问并指定节点或事件
-    activate UI
-    UI->>K: 问题与上下文
-    activate K
-    K->>DB: 白名单数据查询和知识片段检索
-    activate DB
-    DB-->>K: 结构化证据与检索候选
-    deactivate DB
-    K->>K: BM25/TF-IDF、RRF融合、MMR去重
+    R->>DB: 白名单查询及知识片段读取
+    DB-->>R: 返回观测、事件、预测与知识
+    R->>R: BM25与TF-IDF召回、RRF融合、MMR去重
     alt DeepSeek可用
-        K->>L: 问题与带ID的证据
+        R->>L: 提交带ID的证据与问题
         activate L
-        L-->>K: 带引用的解释和建议
+        L-->>R: 返回解释、建议和引用
         deactivate L
-        K->>K: 校验引用ID
-    else API不可用
-        K->>K: 按相同证据生成模板并标注降级
+        R->>R: 校验引用是否来自本次证据集
+    else API不可用或输出不合规
+        R->>R: 按相同证据生成模板并标明降级
     end
-    K-->>UI: 回答、证据来源和检索轨迹
-    deactivate K
-    UI-->>U: 展示可核对的解释
-    deactivate UI
-    U->>UI: 人工确认事件并选择模拟动作
-    activate UI
-    UI->>E: 确认后提交唯一指令ID
+    R-->>API: 返回回答、来源和实际检索轨迹
+    deactivate R
+    API-->>UI: 返回可核对的回答
+    deactivate API
+    UI-->>G: 显示解释和检查建议
+    G->>UI: 确认事件并选择模拟动作
+    UI->>API: 提交确认和执行请求
+    activate API
+    API->>API: 校验管理员权限
+    API->>E: 校验事件状态与唯一指令ID
     activate E
-    E->>DB: 事务校验状态与指令幂等性
-    activate DB
-    DB-->>E: 校验通过
-    deactivate DB
-    E->>E: 模拟通风、开窗或遮阳
-    E->>DB: 保存指令与回执，事件转待复看
-    E-->>UI: 返回模拟执行状态
+    E->>DB: 事务检查幂等性并写指令
+    E->>E: 执行虚拟动作
+    E->>DB: 保存模拟回执，事件转待复看
+    E-->>API: 返回回执
     deactivate E
-    UI-->>U: 展示回执；原始环境数据未改变
-    deactivate UI
-    U->>UI: 复看后续观测，记录并关闭事件
+    API-->>UI: 返回处理状态
+    deactivate API
+    UI-->>G: 展示回执并继续观察
+    G->>UI: 写复看记录并关闭事件
+    UI->>API: 提交关单请求
+    API->>E: 检查权限与关单条件
+    E->>DB: 关闭事件，原始观测保持不变

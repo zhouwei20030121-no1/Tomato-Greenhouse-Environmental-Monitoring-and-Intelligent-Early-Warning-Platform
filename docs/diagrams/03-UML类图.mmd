@@ -91,6 +91,19 @@ classDiagram
         +userId: String
         +expiresAt: DateTime
     }
+    class AuthService {
+        +login(username, password) AuthSession
+        +userFor(request) User
+        +guard(request) bool
+    }
+    class ReplayService {
+        +control(action, time) void
+        +process() void
+    }
+    AuthService ..> User : 校验身份与角色
+    AuthService ..> AuthSession : 创建和检查会话
+    ReplayService ..> User : 仅维护员可控制
+    ReplayService ..> Reading : 回放真实记录
     User "1" -- "0..*" AuthSession : 登录会话
     EventService ..> User : 检查业务权限
     Greenhouse "1" o-- "27" Node : 包含
