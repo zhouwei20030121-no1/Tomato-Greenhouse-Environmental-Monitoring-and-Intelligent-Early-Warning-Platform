@@ -23,6 +23,7 @@ classDiagram
     }
     class ModelVersion {
         +id: String
+        +greenhouseId: String
         +trainEnd: DateTime
         +valEnd: DateTime
         +featureSpec: String
@@ -72,6 +73,7 @@ classDiagram
         -retriever: HybridRetriever
         -provider: DeepSeekClient
         +ask(query, context) Answer
+        +recommend(event, greenhouse) ActionAdvice[]
         -validateCitations(answer) bool
     }
     class EventService {
@@ -106,7 +108,7 @@ classDiagram
     ReplayService ..> Reading : 回放真实记录
     User "1" -- "0..*" AuthSession : 登录会话
     EventService ..> User : 检查业务权限
-    Greenhouse "1" o-- "27" Node : 包含
+    Greenhouse "1" o-- "1..*" Node : 包含
     Node "1" -- "0..*" Reading : 产生
     Node "1" -- "0..*" Prediction : 对应
     ModelVersion "1" -- "0..*" Prediction : 生成
@@ -120,3 +122,22 @@ classDiagram
     EvidenceAssistant ..> AlertEvent : 解释
     EventService ..> AlertEvent : 状态流转
     EventService ..> Command : 幂等执行
+
+    class ReplayState {
+        +greenhouseId: String
+        +cursor: DateTime
+        +speed: float
+        +running: bool
+        +sessionId: String
+    }
+    class EnvironmentSettings {
+        +greenhouseId: String
+        +temperatureRange: Range
+        +humidityRange: Range
+        +vpdRange: Range
+    }
+    Greenhouse "1" -- "1" ReplayState : 独立回放
+    Greenhouse "1" -- "1" EnvironmentSettings : 独立参数
+    Greenhouse "1" -- "0..*" ModelVersion : 独立模型
+    ReplayService ..> ReplayState : 按温室控制
+    EvidenceAssistant ..> EnvironmentSettings : 读取环境依据

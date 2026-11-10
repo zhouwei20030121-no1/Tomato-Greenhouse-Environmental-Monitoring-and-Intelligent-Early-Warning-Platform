@@ -5,9 +5,9 @@ from . import db,data,forecast
 NAMES={'temperature_high':'持续偏热','temperature_low':'持续偏冷','humidity_high':'持续高湿','humidity_low':'空气偏干','vpd_high':'空气VPD偏高','vpd_low':'空气VPD偏低','forecast_temperature_high':'预测升温提示','forecast_humidity_high':'预测高湿提示','data_quality':'节点数据维护'}
 ACTIONS={'ventilate':'模拟通风','open_window':'模拟开窗','shade':'模拟遮阳'}
 
-def evaluate(cursor,session_id):
-    cfg=db.settings();count=int(cfg['persistence']);created=0
-    for node in data.snapshot(cursor):
+def evaluate(cursor,session_id,greenhouse_id='GH1'):
+    cfg=db.settings(greenhouse_id);count=int(cfg['persistence']);created=0
+    for node in data.snapshot(cursor,greenhouse_id):
         cases=[]
         if node['state'] in ('missing','invalid','stale'):
             cases.append(('data_quality','info',{'quality':node['quality'],'age_seconds':node['age_seconds'],'latest_time':node['event_time']}))
@@ -31,15 +31,16 @@ def evaluate(cursor,session_id):
                     if any(flags[i] and flags[i+1] for i in range(len(flags)-1)):cases.append(('forecast_'+metric+'_high','notice',{'model_id':pred['model_id'],'issued_at':pred['issued_at'],'points':pred['points'],'threshold':cfg[metric+'_max'],'source':'gru_prediction'}))
         node_id=node.get('node_id') or node['id']
         for kind,severity,evidence in cases:
-            evidence.update({'node_id':node_id,'cursor':cursor,'title':NAMES[kind]})
+            evidence.update({'greenhouse_id':greenhouse_id,'node_id':node_id,'cursor':cursor,'title':NAMES[kind]})
             old=db.one("SELECT * FROM alerts WHERE session_id=? AND node_id=? AND type=? ORDER BY opened_at DESC LIMIT 1",(session_id,node_id,kind))
             if old and old['status']!='closed':db.execute('UPDATE alerts SET last_seen=?,evidence_json=? WHERE id=?',(cursor,db.dumps(evidence),old['id']))
             elif not old or datetime.fromisoformat(cursor)-datetime.fromisoformat(old['last_seen'])>=timedelta(minutes=cfg['cooldown_minutes']):
                 db.execute('INSERT INTO alerts VALUES(?,?,?,?,?,?,?,?,?,?)',(db.uid(),session_id,node_id,kind,severity,'pending',cursor,cursor,db.dumps(evidence),''));created+=1
     return created
 
-def list_alerts(session=None):
-    rr=db.rows('SELECT * FROM alerts '+('WHERE session_id=? ' if session else '')+'ORDER BY CASE status WHEN \'pending\' THEN 0 WHEN \'closed\' THEN 2 ELSE 1 END,opened_at DESC LIMIT 200',(session,) if session else ())
+def list_alerts(session=None,greenhouse_id='GH1'):
+    query="SELECT a.* FROM alerts a JOIN nodes n ON n.id=a.node_id WHERE n.greenhouse_id=? "+('AND a.session_id=? ' if session else '')+"ORDER BY CASE a.status WHEN 'pending' THEN 0 WHEN 'closed' THEN 2 ELSE 1 END,a.opened_at DESC LIMIT 200"
+    rr=db.rows(query,(greenhouse_id,session) if session else (greenhouse_id,))
     for r in rr:r['evidence']=json.loads(r.pop('evidence_json'));r['title']=NAMES.get(r['type'],r['type'])
     return rr
 

@@ -37,9 +37,9 @@ sequenceDiagram
     deactivate P
     Note over O,G: 两种角色使用独立会话
     G->>UI: 登录管理员账号并查看首页
-    UI->>API: 登录后查询温室总览
+    UI->>API: 携带所选温室ID查询总览
     activate API
-    API->>DB: 查询真实节点与监测结果
+    API->>DB: 按温室查询节点、独立回放与监测结果
     DB-->>API: 返回节点、时间与事件摘要
     API-->>UI: 返回管理员可读数据
     deactivate API
@@ -51,7 +51,7 @@ sequenceDiagram
     API-->>UI: 返回结果
     UI-->>G: 弹出详情或展示独立历史分析
     G->>UI: 从悬浮入口或助手页提问
-    UI->>API: 问题与节点、源时间、事件上下文
+    UI->>API: 温室、节点、源时间与事件上下文
     activate API
     API->>R: 调用证据助手
     activate R
@@ -72,7 +72,20 @@ sequenceDiagram
     API-->>UI: 返回可核对的回答
     deactivate API
     UI-->>G: 显示解释和检查建议
-    G->>UI: 确认事件并选择模拟动作
+    opt 获取AI处理建议
+        G->>UI: 请求当前事件的处理建议
+        UI->>API: 温室ID与事件ID
+        API->>R: 基于事件证据生成候选动作
+        R->>DB: 检索当前温室观测、参数与知识
+        DB-->>R: 返回证据
+        R->>L: 仅允许可用动作并要求引用证据
+        L-->>R: 返回建议动作、理由与引用
+        R->>R: 校验动作白名单与引用，失败则本地降级
+        R-->>API: 返回可选择建议，不执行动作
+        API-->>UI: 返回建议与依据
+        UI-->>G: 展示建议供人工选择
+    end
+    G->>UI: 自行选择动作并确认事件
     UI->>API: 提交确认和执行请求
     activate API
     API->>API: 校验管理员权限

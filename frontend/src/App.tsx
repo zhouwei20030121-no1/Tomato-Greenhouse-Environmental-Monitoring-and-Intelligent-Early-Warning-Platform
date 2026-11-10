@@ -70,10 +70,12 @@ const LABELS: Obj = {
   observing: "待复看",
   closed: "已关闭",
   notice: "预测提示",
-  acknowledged: "模拟执行成功",
+  acknowledged: "执行成功",
 };
+let activeGreenhouseId = "GH1";
 async function api(path: string, options: RequestInit = {}) {
-  const r = await fetch("/api" + path, {
+  const scopedPath = path + (path.includes("?") ? "&" : "?") + "greenhouse_id=" + encodeURIComponent(activeGreenhouseId);
+  const r = await fetch("/api" + scopedPath, {
     ...options,
     headers: { "Content-Type": "application/json", ...options.headers },
   });
@@ -305,7 +307,9 @@ function Greenhouse({
   nodes,
   selected,
   onSelect,
+  greenhouse,
 }: {
+  greenhouse: Obj;
   nodes: Obj[];
   selected: string;
   onSelect: (n: string) => void;
@@ -314,12 +318,12 @@ function Greenhouse({
     <div className="greenhouse-view">
       <div className="scene-caption">
         <span className="live-dot" />
-        温室 01 <span>· 3 × 9 相对部署示意</span>
+        {greenhouse?.name || "温室"}
       </div>
       <svg
         viewBox="0 0 1000 445"
         role="group"
-        aria-label="27个无线传感器节点的温室布局，点击节点查看真实数据"
+        aria-label={`${nodes.length}个无线传感器节点的温室布局，点击节点查看真实数据`}
       >
         <defs>
           <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
@@ -402,7 +406,7 @@ function Greenhouse({
           </g>
         ))}
         {nodes.map((n) => {
-          let x = 104 + n.col_index * 99,
+          let x = 104 + n.col_index * (792 / Math.max(1, Math.max(...nodes.map((v) => v.col_index)))),
             y = 155 + n.row_index * 78;
           const active = n.id === selected;
           const color =
@@ -504,9 +508,39 @@ function Greenhouse({
   );
 }
 
-function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
+
+function EvidenceBody({ evidence }: { evidence: Obj }) {
+  if (evidence.kind === "knowledge") return <p>{evidence.content}</p>;
+  let v: Obj;
+  try { v = typeof evidence.content === "string" ? JSON.parse(evidence.content) : evidence.content; }
+  catch { return <p>暂时无法读取这条依据，请稍后重试。</p>; }
+  const metricNames: Obj = { temperature: "空气温度", humidity: "相对湿度", vpd: "空气VPD" };
+  const units: Obj = { temperature: "℃", humidity: "%", vpd: "kPa" };
+  const facts = (items: [string, any][]) => <dl className="readable-facts">{items.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>;
+  const forecastTable = (points: Obj[]) => <div className="evidence-table-wrap"><table className="evidence-table"><thead><tr><th>时间</th><th>温度 / ℃</th><th>湿度 / %</th><th>VPD / kPa</th></tr></thead><tbody>{points.map((x, i) => <tr key={i}><td>{time(x.time).slice(11,16)}</td><td>{val(x.temperature)}</td><td>{val(x.humidity)}</td><td>{val(x.vpd,2)}</td></tr>)}</tbody></table></div>;
+  if (evidence.kind === "observation") return facts([
+    ["节点", v.node], ["观测时间", time(v.source_time)], ["空气温度", val(v.temperature_c)+" ℃"], ["相对湿度", val(v.humidity_pct)+" %"], ["空气VPD", val(v.air_vpd_kpa,2)+" kPa"],
+    ["数据状态", v.quality === "valid" ? (v.age_seconds > 900 ? "读数较旧，请核对" : "有效观测") : "读数异常，请检查"], ["距当前时间", val(v.age_seconds / 60,0)+" 分钟"], ["无线信号", val(v.rssi_dbm,0)+" dBm / "+val(v.snr_db)+" dB"]
+  ]);
+  if (evidence.kind === "forecast") return <>{v.status === "ready" ? <><p>未来 30 分钟的趋势预测</p>{forecastTable(v.points || [])}</> : <p>{v.reason || "预测暂不可用"}</p>}</>;
+  if (evidence.kind === "configuration") return facts([
+    ["温度参考范围", `${v.temperature_min}～${v.temperature_max} ℃`], ["湿度参考范围", `${v.humidity_min}～${v.humidity_max} %`], ["空气VPD参考范围", `${v.vpd_min}～${v.vpd_max} kPa`], ["持续偏离条件", `连续 ${v.persistence} 个有效观测点`], ["数据新鲜度", `${v.freshness_minutes} 分钟以内`]
+  ]);
+  if (evidence.kind === "deployment") return facts([["温室",v.name],["地区",v.location],["真实节点",`${v.node_count} 个`],["来源文件",v.filename]]);
+  if (evidence.kind === "alert") {
+    if (v.quality !== undefined || v.age_seconds !== undefined) return facts([["最近观测",time(v.latest_time)],["距当前时间",v.age_seconds == null ? "没有有效读数" : val(v.age_seconds/60,0)+" 分钟"],["需关注",v.quality === "no_data" ? "暂无观测，请检查数据来源" : "读数过旧或无效，请检查节点"]]);
+    const metric = v.metric || (evidence.title?.includes("湿") ? "humidity" : "temperature");
+    const points = v.points || [];
+    return <>{facts([["关注指标",metricNames[metric] || "环境变化"],["触发时间",time(v.cursor || v.issued_at)],["参考界限",val(v.threshold,metric === "vpd" ? 2 : 1)+" "+(units[metric] || "")],["判断依据",points.length ? "未来趋势预计持续偏离参考范围" : "连续有效观测偏离参考范围"]])}{v.values && <div className="evidence-readings"><strong>触发读数</strong><p>{v.values.map((x: number) => val(x,metric === "vpd" ? 2 : 1)+" "+units[metric]).join(" → ")}</p></div>}{v.times && <p className="evidence-period">观测时段：{time(v.times[0])} 至 {time(v.times[v.times.length-1]).slice(11)}</p>}{points.length > 0 && forecastTable(points)}</>;
+  }
+  return <p>请查看对应节点的环境读数。</p>;
+}
+
+function Workspace({ user, onLogout, greenhouseId, setGreenhouseId }: { user: Obj; onLogout: () => void; greenhouseId: string; setGreenhouseId: (id: string) => void }) {
+  activeGreenhouseId = greenhouseId;
+  const greenhouses = useQuery("/greenhouses");
   const [page, setPage] = useState("overview"),
-    [node, setNode] = useState("AF34"),
+    [node, setNode] = useState(greenhouseId === "GH2" ? "AF57" : "AF34"),
     [metric, setMetric] = useState("temperature");
   const overview = useQuery("/overview", 3000),
     series = useQuery(`/nodes/${node}/series?hours=8`, 6000),
@@ -514,7 +548,7 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
     alerts = useQuery("/alerts", 5000),
     cfg = useQuery("/settings");
   const [toast, setToast] = useState(""),
-    [clock, setClock] = useState("2020-06-25T13:45"),
+    [clock, setClock] = useState(greenhouseId === "GH2" ? "2020-09-24T13:45" : "2020-06-25T13:45"),
     [busy, setBusy] = useState(false),
     [event, setEvent] = useState<Obj | null>(null);
   const [showNode, setShowNode] = useState(false);
@@ -599,7 +633,7 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
           <div className="dataset-label">
             <Database size={17} />
             <div>
-              真实 LoRaWAN 数据<small>Greenhouse-1 · 27 节点</small>
+              真实 LoRaWAN 数据<small>{o?.greenhouse?.filename} · {o?.metrics?.total_nodes || "—"} 节点</small>
             </div>
           </div>
           <div className="side-user">
@@ -615,20 +649,6 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
         </div>
       </aside>
       <main>
-        <header className="topbar">
-          <div className="breadcrumbs">
-            工作空间 <span>/</span> {activeTitle}
-          </div>
-          <div className="top-right">
-            <span className="connection">
-              <i />
-              本地系统已连接
-            </span>
-            <span className="divider" />
-            <Badge tone="neutral">历史数据回放</Badge>
-            <span className="avatar">Z</span>
-          </div>
-        </header>
         <div className="page-title">
           <div>
             <h1>{page === "overview" ? "温室总览" : activeTitle}</h1>
@@ -636,7 +656,9 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
           <div className="title-right">
             <div className="greenhouse-picker">
               <Leaf size={17} />
-              <span>番茄温室 01</span>
+              <select aria-label="切换温室" value={greenhouseId} onChange={(e) => { activeGreenhouseId = e.target.value; setGreenhouseId(e.target.value); }}>
+                {(greenhouses.data || [{id:"GH1",name:"比利时番茄温室"},{id:"GH2",name:"荷兰番茄温室"}]).map((g: Obj) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
               <ChevronDown size={16} />
             </div>
           </div>
@@ -727,7 +749,7 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
                 {
                   label: "有效数据节点",
                   value: o?.metrics.fresh_nodes,
-                  unit: "/ 27",
+                  unit: `/ ${o?.metrics?.total_nodes || "—"}`,
                   Icon: Radio,
                 },
               ].map(({ label, value, unit, Icon }) => (
@@ -752,7 +774,7 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
             </div>
             <Panel
               title="温室感知全景"
-              sub="27个真实节点 · 点击节点打开数据详情"
+              sub="点击节点打开数据详情"
               action={<Badge>真实数据回放</Badge>}
               className="scene-panel panorama-panel"
             >
@@ -770,6 +792,7 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
                   全屏查看
                 </button>
                 <Greenhouse
+                  greenhouse={o?.greenhouse || {}}
                   nodes={o?.nodes || []}
                   selected={showNode ? node : ""}
                   onSelect={select}
@@ -929,6 +952,7 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
             cursor={o?.replay.cursor}
             event={event}
             notify={notify}
+            technical={user.role === "operator"}
           />
         )}
         {page === "parameters" && (
@@ -947,7 +971,7 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
             VERDANT · 无线传感器环境智能应用
           </span>
           <span>
-            真实观测回放 / 虚拟执行器模拟 <span className="footer-dot">·</span>{" "}
+            温室环境管理 <span className="footer-dot">·</span>{" "}
             周玮
           </span>
         </footer>
@@ -988,6 +1012,7 @@ function Workspace({ user, onLogout }: { user: Obj; onLogout: () => void }) {
             cursor={o?.replay.cursor}
             event={event}
             notify={notify}
+            technical={user.role === "operator"}
           />
         </aside>
       )}
@@ -1127,10 +1152,21 @@ function AlertsPage({
 }: Obj) {
   const [filter, setFilter] = useState("all"),
     [note, setNote] = useState(""),
-    [action, setAction] = useState("ventilate"),
+    [action, setAction] = useState(""),
     [busy, setBusy] = useState(false);
   const commands = useQuery("/commands", 5000);
+  const [advice, setAdvice] = useState<Obj | null>(null), [adviceBusy, setAdviceBusy] = useState(false);
+  const adviceRequest = useRef(0);
   const chosen = alerts.find((a: Obj) => a.id === event?.id) || event;
+  useEffect(() => { adviceRequest.current++; setAdvice(null); setAdviceBusy(false); setNote(chosen?.note || ""); setAction(""); }, [chosen?.id]);
+  async function requestAdvice() {
+    if (!chosen) return;
+    const requestId = ++adviceRequest.current;
+    setAdviceBusy(true);
+    try { const result = await post(`/alerts/${chosen.id}/recommend`); if (requestId === adviceRequest.current) setAdvice(result); }
+    catch (e: any) { if (requestId === adviceRequest.current) notify(e.message); }
+    finally { if (requestId === adviceRequest.current) setAdviceBusy(false); }
+  }
   const list =
     filter === "all" ? alerts : alerts.filter((a: Obj) => a.status === filter);
   async function operate(kind: string) {
@@ -1147,7 +1183,7 @@ function AlertsPage({
         kind === "confirm"
           ? "事件已人工确认"
           : kind === "execute"
-            ? "虚拟设备已返回模拟执行回执"
+            ? "已收到执行回执"
             : "事件已关闭",
       );
       refresh();
@@ -1246,16 +1282,18 @@ function AlertsPage({
                 <dd>{({actual_observation:"实际观测",derived_from_actual_T_RH:"实际温湿度",gru_prediction:"预测结果"} as Obj)[chosen.evidence?.source]||"数据质量"}</dd>
               </div>
             </dl>
-            <details className="evidence-json">
-              <summary>查看原始触发依据</summary>
-              <pre>{JSON.stringify(chosen.evidence, null, 2)}</pre>
-            </details>
+            <details className="event-evidence"><summary>查看触发依据</summary><EvidenceBody evidence={{kind:"alert",title:chosen.title,content:chosen.evidence}} /></details>
             <button
               className="button secondary full"
               onClick={() => onAssistant(chosen.node_id)}
             >
               <Sparkles size={15} />让 AI 解释这条事件
             </button>
+            <section className="action-advice">
+              <div className="advice-heading"><h3><Sparkles size={19}/> AI 处理建议</h3><button className="button secondary" disabled={adviceBusy || readOnly} onClick={requestAdvice}>{adviceBusy ? <LoaderCircle className="spin" size={16}/> : <Sparkles size={16}/>} {adviceBusy ? "正在分析…" : advice ? "重新获取建议" : "获取处理建议"}</button></div>
+              {!advice && !adviceBusy && <p>结合这条预警的读数和环境资料，帮助选择处理动作。</p>}
+              {advice && <><div className="advice-origin">{advice.provider === "deepseek" ? "AI 已结合当前温室数据分析" : "根据当前观测与资料整理"}</div><div className="answer-text">{advice.summary || advice.answer}</div><div className="action-options">{advice.recommendations?.map((item: Obj, i: number) => <div className="action-option" key={i}><div><strong>{item.label}</strong><p>{item.reason}</p></div><button className="button secondary" onClick={() => {setAction(item.action === "none" ? "" : item.action); notify("已选择该建议，请核对后确认处理");}}>{(item.action === "none" ? "" : item.action) === action ? "已选择" : "选择此建议"}</button></div>)}</div></>}
+            </section>
             <label className="form-label">
               人工核对与复看记录
               <textarea
@@ -1266,14 +1304,16 @@ function AlertsPage({
               />
             </label>
             <label className="form-label">
-              模拟处理动作
+              处理动作
               <select
+                aria-label="处理动作"
                 value={action}
                 onChange={(e) => setAction(e.target.value)}
               >
-                <option value="ventilate">模拟通风</option>
-                <option value="open_window">模拟开窗</option>
-                <option value="shade">模拟遮阳</option>
+                <option value="">暂不执行，先现场检查</option>
+                <option value="ventilate">通风</option>
+                <option value="open_window">开窗</option>
+                <option value="shade">遮阳</option>
               </select>
             </label>
             <div className="button-row">
@@ -1287,11 +1327,11 @@ function AlertsPage({
               </button>
               <button
                 className="button secondary"
-                disabled={busy || readOnly || chosen.status !== "confirmed"}
+                disabled={busy || readOnly || !action || chosen.status !== "confirmed"}
                 onClick={() => operate("execute")}
               >
                 <Wind size={15} />
-                执行模拟
+                执行动作
               </button>
               <button
                 className="button secondary"
@@ -1311,9 +1351,9 @@ function AlertsPage({
                   <div key={c.id}>
                     <CheckCheck size={16} />
                     <div>
-                      模拟回执：{LABELS[c.status] || c.status}
+                      执行回执：{LABELS[c.status] || c.status}
                       <small>
-                        {({ventilate:"模拟通风",open_window:"模拟开窗",shade:"模拟遮阳"} as Obj)[c.action]||c.action} · {time(c.ack_at)}
+                        {({ventilate:"通风",open_window:"开窗",shade:"遮阳"} as Obj)[c.action]||c.action} · {time(c.ack_at)}
                       </small>
                     </div>
                   </div>
@@ -1328,7 +1368,7 @@ function AlertsPage({
   );
 }
 
-function AssistantPage({ node, setNode, nodes, cursor, event, notify }: Obj) {
+function AssistantPage({ node, setNode, nodes, cursor, event, notify, technical=false }: Obj) {
   const [question, setQuestion] = useState(""),
     [answer, setAnswer] = useState<Obj | null>(null),
     [busy, setBusy] = useState(false);
@@ -1400,7 +1440,7 @@ function AssistantPage({ node, setNode, nodes, cursor, event, notify }: Obj) {
           <div className="thinking">
             <LoaderCircle className="spin" size={29} />
             <h3>正在检索和组织证据…</h3>
-            <p>读取真实节点记录 → 混合检索 → 排序去重 → DeepSeek解释</p>
+            {technical && <p>读取节点记录 → 混合检索 → 排序去重 → DeepSeek解释</p>}
           </div>
         )}
         {answer && !busy && (
@@ -1409,11 +1449,11 @@ function AssistantPage({ node, setNode, nodes, cursor, event, notify }: Obj) {
             <div className="answer-provider">
               <Sparkles size={18} />
               <strong>{answer.provider_label}</strong>
-              {answer.model && <span>{answer.model}</span>}
+              {technical && answer.model && <span>{answer.model}</span>}
             </div>
             {answer.fallback_reason && (
               <div className="notice compact">
-                {answer.fallback_reason}，本次使用可追溯的本地证据模板。
+                {answer.fallback_reason}，本次根据已保存的观测与资料提供建议。
               </div>
             )}
             <div className="answer-text">{answer.answer}</div>
@@ -1436,7 +1476,7 @@ function AssistantPage({ node, setNode, nodes, cursor, event, notify }: Obj) {
                       {e.title}
                       <ExternalLink size={13} />
                     </summary>
-                    <p>{e.content}</p>
+                    <EvidenceBody evidence={e} />
                     {e.source_url.startsWith("https://") && (
                       <a href={e.source_url} target="_blank" rel="noreferrer">
                         打开资料来源 ↗
@@ -1475,7 +1515,7 @@ function AssistantPage({ node, setNode, nodes, cursor, event, notify }: Obj) {
         </form>
       </Panel>
       <div>
-        <Panel title="检索算法链路">
+        {technical && <Panel title="检索算法链路">
           <div className="rag-steps">
             {[
               ["01", "问题与上下文", "解析节点、指标、事件与时间"],
@@ -1499,7 +1539,7 @@ function AssistantPage({ node, setNode, nodes, cursor, event, notify }: Obj) {
               <pre>{JSON.stringify(answer.retrieval, null, 2)}</pre>
             </details>
           )}
-        </Panel>
+        </Panel>}
         <Panel
           title="知识来源"
           sub={`${knowledge.data?.length || 0} 份来源明确的整理资料`}
@@ -1572,7 +1612,7 @@ function SettingsPage({ cfg, notify, refresh }: Obj) {
           <div className="source-file">
             <Database size={32} />
             <div>
-              <strong>Greenhouse-1.xlsx</strong>
+              <strong>{data.data?.deployment?.filename || "读取数据源…"}</strong>
               <small>Singh R.K. 等 · LoRaWAN番茄温室 · CC BY 4.0</small>
             </div>
           </div>
@@ -1889,6 +1929,7 @@ function EnvironmentParameters({ cfg, notify, refresh }: Obj) {
   );
 }
 export default function App() {
+  const [greenhouseId, setGreenhouseId] = useState("GH1");
   const [user, setUser] = useState<Obj | null>(null),
     [loading, setLoading] = useState(true),
     [username, setUsername] = useState("grower"),
@@ -1908,6 +1949,9 @@ export default function App() {
   if (user)
     return (
       <Workspace
+        key={greenhouseId}
+        greenhouseId={greenhouseId}
+        setGreenhouseId={setGreenhouseId}
         user={user}
         onLogout={async () => {
           await post("/auth/logout");

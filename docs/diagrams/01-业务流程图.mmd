@@ -5,7 +5,8 @@ flowchart LR
  LOGIN --> AUTH{身份验证通过？}
  AUTH -- 否 --> REJECT[/提示重新登录/]
  REJECT --> LOGIN
- AUTH -- 是 --> ROLE{账号角色？}
+ AUTH -- 是 --> SITE[/选择比利时或荷兰番茄温室/]
+ SITE --> ROLE{账号角色？}
  ROLE -- 系统维护员 --> OPS[导入数据、训练模型、控制回放]
  OPS --> A1((A))
  ROLE -- 温室管理员 --> B1((B))
@@ -18,7 +19,7 @@ flowchart LR
  VALID -- 否 --> QUALITY[保存数据维护提示]
  VALID -- 是 --> VPD[计算温湿度与空气VPD]
  VPD --> READY{模型与输入窗口就绪？}
- READY -- 是 --> GRU[GRU预测未来30分钟]
+ READY -- 是 --> GRU[当前温室GRU预测未来30分钟]
  READY -- 否 --> PAUSE[保留观测并标明预测暂停]
  GRU --> RULE[持续偏离与预测偏离规则判定]
  PAUSE --> RULE
@@ -36,7 +37,11 @@ flowchart LR
  RAG --> ANSWER[/DeepSeek生成并校验引用；失败时标明降级/]
  ASK -- 否 --> REVIEW[/查看预警并核对依据/]
  ANSWER --> REVIEW
- REVIEW --> C1((C))
+ REVIEW --> ADVICE{是否需要AI动作建议？}
+ ADVICE -- 是 --> OPTIONS[检索事件证据、生成候选动作并校验引用]
+ OPTIONS --> SELECT[/管理员自行选择处理动作/]
+ ADVICE -- 否 --> SELECT
+ SELECT --> C1((C))
  end
  subgraph EXECUTION[四 人工处理与复看]
  direction TB

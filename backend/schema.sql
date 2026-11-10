@@ -19,3 +19,6 @@ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value_json TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,kind TEXT NOT NULL,status TEXT NOT NULL,progress REAL NOT NULL,message TEXT,result_json TEXT,started_at TEXT,finished_at TEXT);
 CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,username TEXT UNIQUE NOT NULL,display_name TEXT NOT NULL,role TEXT NOT NULL,password_salt TEXT NOT NULL,password_hash TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS auth_sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),expires_at TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS greenhouse_replay(greenhouse_id TEXT PRIMARY KEY REFERENCES greenhouses(id),cursor TEXT NOT NULL,speed REAL NOT NULL,running INTEGER NOT NULL DEFAULT 0,transport TEXT NOT NULL,session_id TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS greenhouse_settings(greenhouse_id TEXT NOT NULL REFERENCES greenhouses(id),key TEXT NOT NULL,value_json TEXT NOT NULL,updated_at TEXT,PRIMARY KEY(greenhouse_id,key));
