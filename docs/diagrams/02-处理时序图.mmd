@@ -1,0 +1,86 @@
+sequenceDiagram
+    autonumber
+    actor U as 管理员
+    actor O as 系统维护员
+    participant UI as 前端页面
+    participant API as API与权限
+    participant R as 回放与网关服务
+    participant A as 预测与预警服务
+    participant DB as 数据库
+    participant K as RAG助手
+    participant L as DeepSeek
+    participant E as 事件与虚拟执行器
+    U->>UI: 登录温室管理员工作台
+    UI->>API: 用户名与密码
+    activate API
+    API->>DB: 校验密码摘要和角色
+    DB-->>API: 返回账号与权限
+    API-->>UI: 设置HttpOnly会话Cookie
+    deactivate API
+    Note over U,O: 两种角色使用各自独立的登录会话
+    O->>UI: 在维护员会话中选择历史时间，开始回放
+    activate UI
+    UI->>R: 更新回放参数
+    activate R
+    R->>DB: 读取不晚于事件时钟的真实观测
+    activate DB
+    DB-->>R: 返回观测、源时间和质量标记
+    deactivate DB
+    R->>A: 处理当前5分钟格点与输入窗口
+    activate A
+    alt 窗口有效且模型就绪
+        A->>A: 执行GRU多步预测
+    else 模型未就绪或存在长缺口
+        A->>A: 暂停预测，记录原因
+    end
+    A->>DB: 写预测结果和满足规则的预警证据
+    activate DB
+    DB-->>A: 返回事件ID
+    deactivate DB
+    A-->>R: 本格点处理完成
+    deactivate A
+    R-->>UI: 返回时间轴状态
+    deactivate R
+    UI->>DB: 经只读API查询看板、曲线和预警
+    activate DB
+    DB-->>UI: 返回观测与事件详情
+    deactivate DB
+    UI-->>U: 显示节点环境与待处理事件
+    deactivate UI
+    U->>UI: 提问并指定节点或事件
+    activate UI
+    UI->>K: 问题与上下文
+    activate K
+    K->>DB: 白名单数据查询和知识片段检索
+    activate DB
+    DB-->>K: 结构化证据与检索候选
+    deactivate DB
+    K->>K: BM25/TF-IDF、RRF融合、MMR去重
+    alt DeepSeek可用
+        K->>L: 问题与带ID的证据
+        activate L
+        L-->>K: 带引用的解释和建议
+        deactivate L
+        K->>K: 校验引用ID
+    else API不可用
+        K->>K: 按相同证据生成模板并标注降级
+    end
+    K-->>UI: 回答、证据来源和检索轨迹
+    deactivate K
+    UI-->>U: 展示可核对的解释
+    deactivate UI
+    U->>UI: 人工确认事件并选择模拟动作
+    activate UI
+    UI->>E: 确认后提交唯一指令ID
+    activate E
+    E->>DB: 事务校验状态与指令幂等性
+    activate DB
+    DB-->>E: 校验通过
+    deactivate DB
+    E->>E: 模拟通风、开窗或遮阳
+    E->>DB: 保存指令与回执，事件转待复看
+    E-->>UI: 返回模拟执行状态
+    deactivate E
+    UI-->>U: 展示回执；原始环境数据未改变
+    deactivate UI
+    U->>UI: 复看后续观测，记录并关闭事件
