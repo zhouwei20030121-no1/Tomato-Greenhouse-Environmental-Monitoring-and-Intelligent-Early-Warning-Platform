@@ -3514,3 +3514,34 @@ footer {
     font-size: 15px;
   }
 }
+
+/* Multi-deployment selector and readable evidence for operational users. */
+.title-right { display:block; }
+.page-title { padding-top: 27px; }
+.greenhouse-picker { padding: 5px 10px; }
+.greenhouse-picker select { border:0; background:transparent; font-size:16px; padding:8px 0; min-width:165px; color:#294a35; }
+.greenhouse-picker > svg:last-child { display:none; }
+.readable-facts { margin:14px 0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 20px; }
+.readable-facts > div { min-width:0; }
+.readable-facts dt { font-size:14px; color:#59705d; margin-bottom:5px; }
+.readable-facts dd { font-size:16px; line-height:1.55; color:#213d31; overflow-wrap:anywhere; margin:0; }
+.evidence-table-wrap { overflow-x:auto; margin-top:14px; }
+.evidence-table { width:100%; border-collapse:collapse; font-size:15px; white-space:nowrap; }
+.evidence-table th,.evidence-table td { padding:10px 12px; text-align:left; border-bottom:1px solid #cdd8c2; }
+.evidence-table th { font-weight:600; color:#3f5a37; }
+.event-evidence { margin:18px 0; border:1px solid #c4d4b6; border-radius:12px; padding:15px; background:#ffffff70; }
+.event-evidence summary { cursor:pointer; font-size:16px; color:#3b5937; }
+.evidence-readings { margin:14px 0; line-height:1.7; }
+.evidence-period { font-size:14px; line-height:1.6; }
+.action-advice { border:1px solid #c7d6bb; border-radius:14px; background:#f4f8efbc; padding:18px; margin:20px 0; }
+.advice-heading { display:flex; gap:12px; justify-content:space-between; align-items:center; flex-wrap:wrap; }
+.advice-heading h3 { display:flex; gap:8px; align-items:center; font-size:18px; margin:0; }
+.action-advice > p,.action-option p { font-size:15px; color:#4c6546; line-height:1.75; margin-top:10px; }
+.advice-origin { font-size:14px; color:#5e7550; margin:16px 0 10px; }
+.action-options { display:grid; gap:12px; margin-top:18px; }
+.action-option { display:flex; align-items:center; gap:16px; justify-content:space-between; background:#fff9; padding:14px; border-radius:10px; }
+.action-option > div { flex:1; min-width:0; }
+.action-option .button { flex-shrink:0; }
+.evidence-cards details[open] { padding-bottom:16px; }
+.evidence-cards p { color:#365035; font-size:15px; }
+@media(max-width:700px) { .readable-facts { grid-template-columns:1fr; } .page-title { gap:14px; flex-wrap:wrap; padding-top:20px; } .greenhouse-picker select { min-width:145px; font-size:15px; } .action-option { flex-direction:column; align-items:stretch; } }
